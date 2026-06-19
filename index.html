@@ -501,11 +501,23 @@ async function enterApp(){
   showView("predictions");
   await loadAll();
 }
+/* Fetch every row from a table, paging past the 1000-row API cap. */
+async function fetchAllRows(table){
+  let all = [], from = 0; const size = 1000;
+  for(;;){
+    const { data, error } = await db.from(table).select("*").range(from, from+size-1);
+    if(error) return { data: all, error };
+    all = all.concat(data || []);
+    if(!data || data.length < size) break;
+    from += size;
+  }
+  return { data: all, error: null };
+}
 async function loadAll(){
   const [p,pr,r] = await Promise.all([
-    db.from("players").select("*"),
-    db.from("predictions").select("*"),
-    db.from("results").select("*")
+    fetchAllRows("players"),
+    fetchAllRows("predictions"),
+    fetchAllRows("results")
   ]);
   const err = p.error || pr.error || r.error;
   if(err){
