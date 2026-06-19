@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- saved from url=(0044)file:///C:/Users/sdaci/Downloads/app_15.html -->
+<!-- saved from url=(0044)file:///C:/Users/sdaci/Downloads/app_16.html -->
 <html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -129,6 +129,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
             background: linear-gradient(180deg, var(--primary), var(--primary-dark));
             color: #04130b; box-shadow: 0 6px 18px rgba(22,224,127,0.35);
         }
+        nav button.nav-logout {
+            margin-left: auto; color: var(--text-mut);
+            border: 1px solid var(--line);
+        }
+        nav button.nav-logout:hover { color: var(--danger); border-color: var(--danger); background: rgba(255,93,108,0.08); }
+        nav button.nav-logout.active { background: none; box-shadow: none; color: var(--text-mut); }
 
         /* ---- Layout ---- */
         .container { max-width: 1100px; margin: 36px auto; padding: 0 20px; }
@@ -326,6 +332,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         <button onclick="switchView(&#39;knockout&#39;)" id="nav-knockout">Knockout</button>
         <button onclick="switchView(&#39;rules&#39;)" id="nav-rules">Rules</button>
         <button onclick="switchView(&#39;admin&#39;)" id="nav-admin" style="display: none; color: var(--accent);">Admin Panel</button>
+        <button onclick="logout()" id="nav-logout" class="nav-logout">Log Out</button>
     </nav>
 
     <div class="container">
