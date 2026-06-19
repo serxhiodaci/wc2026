@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- saved from url=(0044)file:///C:/Users/sdaci/Downloads/app_13.html -->
+<!-- saved from url=(0044)file:///C:/Users/sdaci/Downloads/app_15.html -->
 <html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -3671,6 +3671,12 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         }
 
         async function savePredictionFor(matchId) {
+            // Safety guard: we must have a valid logged-in player id, or the DB rejects the row
+            if(!currentUser || !currentUser.id) {
+                alert("Your session looks incomplete — please log out and log back in, then try again.");
+                console.error('savePredictionFor: missing currentUser.id', currentUser);
+                return;
+            }
             // Approval guard: unapproved players cannot save predictions
             if(!isApproved(currentUser)) {
                 alert("Your account is still awaiting admin approval.");
