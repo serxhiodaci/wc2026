@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- saved from url=(0044)file:///C:/Users/sdaci/Downloads/app_10.html -->
+<!-- saved from url=(0044)file:///C:/Users/sdaci/Downloads/app_12.html -->
 <html lang="en"><head><meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
     
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -310,7 +310,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
 </head>
 <body>
 
-    <div class="sync-banner"><div class="pulse"></div> Live Real-Time Database Connection Active</div>
+    <div class="sync-banner" id="sync-banner"><div class="pulse"></div> Live Real-Time Database Connection Active</div>
     <header>
         <div class="ghost-year">2026</div>
         <span class="kicker">FIFA World Cup · USA · Canada · Mexico</span>
@@ -624,6 +624,8 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         let globalKoResults = {};
         let activeGroupFilter = "A";
         let editingPlayerId = null;
+        // Type-tolerant id match: handles match_id/player_id stored as text vs number
+        const sameId = (a, b) => String(a) === String(b);
 
         // Loads a script tag and resolves when it finishes (or rejects on error)
         function loadScript(src) {
@@ -793,17 +795,25 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         }
 
         async function syncAndRefresh() {
-            let { data: p } = await sbClient.from('players').select('*');
-            let { data: r } = await sbClient.from('results').select('*');
-            let { data: pr } = await sbClient.from('predictions').select('*');
-            let { data: ko } = await sbClient.from('ko_results').select('*');
+            const { data: p,  error: pErr }  = await sbClient.from('players').select('*');
+            const { data: r,  error: rErr }  = await sbClient.from('results').select('*');
+            const { data: pr, error: prErr } = await sbClient.from('predictions').select('*');
+            const { data: ko, error: koErr } = await sbClient.from('ko_results').select('*');
+
+            // Surface read failures (e.g. an RLS policy blocking SELECT) instead of silently showing nothing
+            const readErr = pErr || rErr || prErr || koErr;
+            if(readErr) {
+                console.error('Supabase read error:', readErr.message, { pErr, rErr, prErr, koErr });
+                const banner = document.getElementById('sync-banner');
+                if(banner) banner.textContent = '⚠️ Could not load data — check Supabase read (SELECT) permissions';
+            }
 
             globalPlayers = p || [];
             globalPredictions = pr || [];
-            
+
             globalResults = {};
             (r || []).forEach(m => { globalResults[m.match_id] = m; });
-            
+
             globalKoResults = {};
             (ko || []).forEach(k => { globalKoResults[k.slot_id] = k; });
 
@@ -851,7 +861,7 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         function processLeaderboard() {
             const calculated = globalPlayers.map(player => {
                 let points = 0, exacts = 0, outcomes = 0;
-                const pPreds = globalPredictions.filter(x => x.player_id === player.id);
+                const pPreds = globalPredictions.filter(x => sameId(x.player_id, player.id));
                 
                 pPreds.forEach(pred => {
                     const res = globalResults[pred.match_id];
@@ -916,15 +926,23 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
         function renderPredictionsList() {
             const listContainer = document.getElementById('matches-container');
             const targetMatches = FIXTURES.filter(f => f.group === activeGroupFilter);
-            const userPreds = globalPredictions.filter(x => x.player_id === currentUser.id);
+            const userPreds = globalPredictions.filter(x => sameId(x.player_id, currentUser.id));
+
+            // Diagnostic: predictions exist in the DB but none belong to the current user → likely a player_id mismatch
+            if(globalPredictions.length > 0 && userPreds.length === 0) {
+                console.warn('Predictions loaded but none match current user.',
+                    'currentUser.id =', currentUser.id,
+                    '| sample stored player_id =', globalPredictions[0].player_id,
+                    '| sample match_id =', globalPredictions[0].match_id, '(type', typeof globalPredictions[0].match_id + ')');
+            }
             
-            const completedCount = FIXTURES.filter(f => userPreds.some(p => p.match_id === f.id)).length;
+            const completedCount = FIXTURES.filter(f => userPreds.some(p => sameId(p.match_id, f.id))).length;
             document.getElementById('pred-progress').style.width = `${(completedCount / FIXTURES.length) * 100}%`;
 
             let html = "";
             targetMatches.forEach(m => {
                 const res = globalResults[m.id];
-                const pred = userPreds.find(p => p.match_id === m.id);
+                const pred = userPreds.find(p => sameId(p.match_id, m.id));
                 const status = getMatchStatus(m.time);
 
                 const md = matchdayOf(m);
@@ -1071,11 +1089,11 @@ Resources:`;for(let t of c){if(!t||typeof t!=`string`)throw Error(`@supabase/aut
             started.forEach(m => {
                 const res = globalResults[m.id];
                 const finished = res && res.is_finished;
-                const preds = globalPredictions.filter(p => p.match_id === m.id);
+                const preds = globalPredictions.filter(p => sameId(p.match_id, m.id));
 
                 // Sort picks: highest points first if finished, else by player name
                 const enriched = preds.map(p => {
-                    const player = globalPlayers.find(pl => pl.id === p.player_id);
+                    const player = globalPlayers.find(pl => sameId(pl.id, p.player_id));
                     const name = player ? player.name : 'Unknown';
                     const pts = finished ? calculatePoints(p.home_pred, p.away_pred, res.home_score, res.away_score) : null;
                     return { name, h: p.home_pred, a: p.away_pred, pts };
