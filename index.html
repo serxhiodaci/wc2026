@@ -117,6 +117,13 @@ tr.me{background:rgba(22,224,127,.06)}
 .ko-team{flex:1;padding:6px 8px;font-size:.85rem}
 .ko-sc{width:46px;text-align:center;padding:6px 4px;font-family:var(--mono)}
 .ko-save{margin-top:8px;width:100%}
+.ko-lbl{display:block;font-size:.62rem;letter-spacing:.04em;text-transform:uppercase;color:var(--mut);font-weight:700;margin:8px 0 3px}
+.ko-status{font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:3px 8px;border-radius:6px;display:inline-block;margin-bottom:6px;border:1px solid var(--line)}
+.ko-status.open{color:var(--primary);border-color:var(--primary);background:rgba(22,224,127,.08)}
+.ko-status.lk{color:var(--accent);border-color:var(--accent);background:rgba(255,194,75,.08)}
+.ko-status.done{color:var(--text);border-color:var(--line)}
+.ko-status.off{color:var(--mut)}
+.ko-time{margin-top:8px;padding-top:7px;border-top:1px solid var(--line);font-size:.72rem;color:var(--accent);font-weight:600;text-align:center}
 .chip{font-size:.78rem;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid var(--line);background:none;color:var(--text);cursor:pointer;font-family:inherit}
 .chip.green{border-color:var(--primary);color:var(--primary)}
 .chip.gold{border-color:var(--accent);color:var(--accent)}
@@ -215,8 +222,30 @@ tr.me{background:rgba(22,224,127,.06)}
         <li style="margin-bottom:8px"><b style="color:var(--primary)">3 points</b> — exact scoreline (e.g. you said 2–1 and it finished 2–1).</li>
         <li style="margin-bottom:8px"><b style="color:var(--accent)">1 point</b> — correct result (right winner or a draw, wrong score).</li>
         <li style="margin-bottom:8px">Predictions lock the moment a match starts — no edits after kickoff.</li>
-        <li style="margin-bottom:8px">Once a match starts, you can see everyone's picks in the All Picks tab.</li>
-        <li><b style="color:var(--primary)">Tiebreaker</b> — if two players finish on equal points, the player with the most exact scores wins the competition.</li>
+        <li>Once a match starts, you can see everyone's picks in the All Picks tab.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Knockout Games &amp; Extra Time</h2>
+      <p class="muted" style="margin:6px 0 12px">In the knockout rounds a game can't end in a tie — so here's the simple version.</p>
+      <p style="margin-bottom:10px">A knockout game has to have a winner. If the teams are level after the normal <b>90 minutes</b>, they play <b>30 more minutes</b> (this is called extra time). When we count your points, we always use the <b>final score after all the minutes are played — including extra time</b>. We don't use the score at 90 minutes.</p>
+      <p style="margin-bottom:10px">Imagine it like a race that goes a little longer. What matters is who's ahead at the very end, not halfway through. Here are some examples:</p>
+      <ul style="margin:0 0 4px 18px;color:var(--text)">
+        <li style="margin-bottom:10px">⚽ You guessed <b>France 2–1 Sweden</b>. After 90 minutes it's only <b>1–1</b> — uh oh! But in extra time France scores again, so it ends <b>2–1</b>. Your guess matches the final score → you get the full <b style="color:var(--primary)">3 points</b>. The 1–1 in the middle doesn't matter — only the final score counts.</li>
+        <li style="margin-bottom:10px">⚽ You guessed <b>France 3–1</b>. After extra time it ends <b>2–1</b> to France. You picked the right winner but not the exact score → <b style="color:var(--accent)">1 point</b>.</li>
+        <li style="margin-bottom:10px">⚽ You guessed <b>1–1</b>. It's still <b>1–1</b> after extra time, and France wins on penalty kicks. Penalty kicks don't add to the score, so the score we use is still <b>1–1</b> → your guess is exact → <b style="color:var(--primary)">3 points</b>. (Winning on penalties doesn't change the score we count.)</li>
+        <li>⚽ You guessed <b>France 2–0</b>. It ends <b>0–0</b> after extra time and Sweden wins on penalties. The final score is a 0–0 tie, so a 2–0 guess is wrong → <b>0 points</b>.</li>
+      </ul>
+      <p class="muted" style="margin-top:10px">In short: always predict the score you think it'll be after extra time. Penalty shootouts never change the score we use.</p>
+    </div>
+
+    <div class="card">
+      <h2>Winning the Competition</h2>
+      <ul style="margin:14px 0 0 18px;color:var(--text)">
+        <li style="margin-bottom:8px">The player with the most total points at the end of the tournament wins.</li>
+        <li style="margin-bottom:8px"><b style="color:var(--primary)">Tiebreaker</b> — if two players finish on equal points, the one with the most <b>exact scores</b> (3-point predictions) wins.</li>
+        <li>If they're still tied — same points <b>and</b> same number of exact scores — the prize pot is <b>split equally</b> between them.</li>
       </ul>
     </div>
   </div>
@@ -447,6 +476,7 @@ function koNum(slotId){ const m=String(slotId).match(/_M(\d+)/); return m?parseI
 const KO_BY_NUM = {};
 if(typeof KNOCKOUT_SLOTS!=="undefined"){ KNOCKOUT_SLOTS.forEach(s=>{ const n=koNum(s.id); if(n) KO_BY_NUM[n]=s; }); }
 function koDataByNum(num){ const s=KO_BY_NUM[num]; return s ? (koResults[s.id]||null) : null; }
+function toLocalInput(iso){ const d=new Date(iso); const off=d.getTimezoneOffset()*60000; return new Date(d.getTime()-off).toISOString().slice(0,16); }
 function koLocked(ko){
   if(!ko) return false;
   if(ko.home_score!=null && ko.away_score!=null) return true;          // result entered
@@ -656,7 +686,10 @@ function renderKnockoutPredictions(box){
       Knockout ties will appear here as the bracket fills in. An admin sets each tie's two teams in the <b>Knockout</b> tab — once both teams are in, you can predict the score here.</div>`;
     return;
   }
-  let html = "";
+  let html = `<div class="card" style="padding:13px 16px;margin-bottom:10px;border-color:var(--accent)">
+    <span style="color:var(--accent);font-weight:700;font-size:.82rem">⏱️ Extra time counts.</span>
+    <span class="muted" style="font-size:.82rem"> Knockout games can't end in a tie. If it's level after 90 minutes, extra time is played — and your prediction is scored against the <b>final score after 120 minutes</b> (penalty shootouts don't change the score). Predict the score you think it'll be at the very end. See the Rules tab for examples.</span>
+  </div>`;
   KO_ROUNDS.forEach(round=>{
     const inRound = ties.filter(t=>t.slot.round===round);
     if(!inRound.length) return;
@@ -792,8 +825,8 @@ function renderKnockout(){
   if(!box) return;
   const admin = !!(me && me.is_admin);
   document.getElementById("ko-note").textContent = admin
-    ? "Admin: fill in the teams and scores for each tie as the knockout rounds are played."
-    : "The path to the final. Teams and scores fill in as the knockout rounds are played.";
+    ? "Step 1: enter a tie's two teams + kickoff time → it opens for prediction. Step 2 (after the match): enter the final score to award points. You do NOT need a score to open a game for prediction."
+    : "The path to the final. All kickoff times shown in Central Time (CT). Teams and scores fill in as the knockout rounds are played.";
   let html = "";
   KO_ROUNDS.forEach(round=>{
     const slots = KNOCKOUT_SLOTS.filter(s=>s.round===round);
@@ -801,18 +834,26 @@ function renderKnockout(){
     slots.forEach(s=>{
       const k = koResults[s.id] || {};
       if(admin){
-        const koVal = k.kickoff ? new Date(k.kickoff).toISOString().slice(0,16) : "";
+        const koVal = k.kickoff ? toLocalInput(k.kickoff) : "";
+        const hasTeams = k.home_team && k.away_team;
+        const hasScore = k.home_score!=null && k.away_score!=null;
+        let status="Not set up", scls="off";
+        if(hasScore){ status="Result in"; scls="done"; }
+        else if(koLocked(k)){ status="Locked"; scls="lk"; }
+        else if(hasTeams){ status="Open for predictions"; scls="open"; }
         html += `<div class="ko-slot">
-          <div class="ko-side">
-            <input class="ko-team" id="kh-${s.id}" value="${(k.home_team||'').replace(/"/g,'&quot;')}" placeholder="${s.hLabel}">
+          <div class="ko-status ${scls}">${status}</div>
+          <label class="ko-lbl">① Teams — opens the game for prediction</label>
+          <input class="ko-team" id="kh-${s.id}" value="${(k.home_team||'').replace(/"/g,'&quot;')}" placeholder="${s.hLabel}">
+          <input class="ko-team" id="ka-${s.id}" value="${(k.away_team||'').replace(/"/g,'&quot;')}" placeholder="${s.aLabel}">
+          <label class="ko-lbl">② Kickoff — predictions lock at this time</label>
+          <input type="datetime-local" id="kt-${s.id}" value="${koVal}" style="padding:6px;font-size:.78rem">
+          <label class="ko-lbl">③ Final score — leave blank until after the match</label>
+          <div style="display:flex;gap:6px;align-items:center">
             <input class="ko-sc" type="number" min="0" id="khs-${s.id}" value="${k.home_score??''}">
-          </div>
-          <div class="ko-side">
-            <input class="ko-team" id="ka-${s.id}" value="${(k.away_team||'').replace(/"/g,'&quot;')}" placeholder="${s.aLabel}">
+            <span class="muted">:</span>
             <input class="ko-sc" type="number" min="0" id="kas-${s.id}" value="${k.away_score??''}">
           </div>
-          <label style="font-size:.62rem;margin:6px 0 2px">Kickoff (locks predictions)</label>
-          <input type="datetime-local" id="kt-${s.id}" value="${koVal}" style="padding:6px;font-size:.78rem">
           <button class="chip green ko-save" onclick="saveKo('${s.id}')">Save</button>
         </div>`;
       } else {
@@ -821,9 +862,13 @@ function renderKnockout(){
         const hWin = done && hs>as, aWin = done && as>hs;
         const hTeam = k.home_team ? k.home_team : `<span class="lbl">${s.hLabel}</span>`;
         const aTeam = k.away_team ? k.away_team : `<span class="lbl">${s.aLabel}</span>`;
+        const timeLine = done ? "Full time"
+                        : (k.kickoff ? kickoffCT(k.kickoff)
+                        : (k.home_team && k.away_team ? "Kickoff TBD" : ""));
         html += `<div class="ko-slot">
-          <div class="ko-side ${hWin?'win':''}"><span>${hTeam}</span><span class="ko-sc-v">${hs??''}</span></div>
-          <div class="ko-side ${aWin?'win':''}"><span>${aTeam}</span><span class="ko-sc-v">${as??''}</span></div>
+          <div class="ko-side ${hWin?'win':''}"><span>${k.home_team?flagFor(k.home_team)+' ':''}${hTeam}</span><span class="ko-sc-v">${hs??''}</span></div>
+          <div class="ko-side ${aWin?'win':''}"><span>${k.away_team?flagFor(k.away_team)+' ':''}${aTeam}</span><span class="ko-sc-v">${as??''}</span></div>
+          ${timeLine?`<div class="ko-time">${timeLine}</div>`:''}
         </div>`;
       }
     });
