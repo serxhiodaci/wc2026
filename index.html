@@ -106,6 +106,17 @@ tr.me{background:rgba(22,224,127,.06)}
 .pscore{font-family:var(--mono);font-weight:800}
 .pscore.exact{color:var(--primary)}
 .adm-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:12px 0;border-bottom:1px solid var(--line)}
+/* knockout */
+.ko-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:14px}
+.ko-slot{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.ko-side{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;font-size:.9rem;font-weight:600}
+.ko-side+.ko-side{border-top:1px solid var(--line)}
+.ko-side.win{color:var(--primary)}
+.ko-side .lbl{color:var(--mut);font-weight:500;font-style:italic}
+.ko-sc-v{font-family:var(--mono);font-weight:800;min-width:18px;text-align:right}
+.ko-team{flex:1;padding:6px 8px;font-size:.85rem}
+.ko-sc{width:46px;text-align:center;padding:6px 4px;font-family:var(--mono)}
+.ko-save{margin-top:8px;width:100%}
 .chip{font-size:.78rem;font-weight:700;padding:4px 10px;border-radius:6px;border:1px solid var(--line);background:none;color:var(--text);cursor:pointer;font-family:inherit}
 .chip.green{border-color:var(--primary);color:var(--primary)}
 .chip.gold{border-color:var(--accent);color:var(--accent)}
@@ -130,6 +141,7 @@ tr.me{background:rgba(22,224,127,.06)}
   <button data-view="predictions" class="active">My Predictions</button>
   <button data-view="leaderboard">Leaderboard</button>
   <button data-view="allpicks">All Picks</button>
+  <button data-view="knockout">Knockout</button>
   <button data-view="rules">Rules</button>
   <button data-view="admin" id="nav-admin" style="display:none;color:var(--accent)">Admin</button>
   <button class="logout" id="nav-logout">Log Out</button>
@@ -162,6 +174,7 @@ tr.me{background:rgba(22,224,127,.06)}
     <div class="card">
       <h2>My Predictions</h2>
       <p class="muted">Pick a scoreline for each match. Predictions save automatically and lock at kickoff.</p>
+      <div class="filters" id="pred-mode" style="margin-top:6px"></div>
       <div class="filters" id="group-filters"></div>
     </div>
     <div id="matches"></div>
@@ -187,6 +200,12 @@ tr.me{background:rgba(22,224,127,.06)}
     <div id="allpicks"></div>
   </div>
 
+  <!-- KNOCKOUT -->
+  <div id="view-knockout" class="view">
+    <div class="card"><h2>Knockout Bracket</h2><p class="muted" id="ko-note">The path to the final. Teams and scores fill in as the knockout rounds are played.</p></div>
+    <div id="knockout"></div>
+  </div>
+
   <!-- RULES -->
   <div id="view-rules" class="view">
     <div class="card">
@@ -196,7 +215,8 @@ tr.me{background:rgba(22,224,127,.06)}
         <li style="margin-bottom:8px"><b style="color:var(--primary)">3 points</b> — exact scoreline (e.g. you said 2–1 and it finished 2–1).</li>
         <li style="margin-bottom:8px"><b style="color:var(--accent)">1 point</b> — correct result (right winner or a draw, wrong score).</li>
         <li style="margin-bottom:8px">Predictions lock the moment a match starts — no edits after kickoff.</li>
-        <li>Once a match starts, you can see everyone's picks in the All Picks tab.</li>
+        <li style="margin-bottom:8px">Once a match starts, you can see everyone's picks in the All Picks tab.</li>
+        <li><b style="color:var(--primary)">Tiebreaker</b> — if two players finish on equal points, the player with the most exact scores wins the competition.</li>
       </ul>
     </div>
   </div>
@@ -406,19 +426,39 @@ let me = null;            // current logged-in player {id,name,email,is_admin,is
 let players = [];
 let predictions = [];
 let results = {};         // keyed by String(match_id)
+let koResults = {};       // keyed by slot_id
 let groupFilter = "A";
 let admGroupFilter = "A";
+let predMode = "group";    // "group" | "knockout"
 
 /* ============ HELPERS ============ */
 const sid = (a,b) => String(a) === String(b);
 const flagFor = t => (typeof FLAGS!=="undefined" && FLAGS[t]) ? FLAGS[t] : "🏳️";
 function kickoffCT(iso){
+  if(!iso) return "Time TBD";
   const d = new Date(iso);
   const day = d.toLocaleDateString("en-US",{timeZone:"America/Chicago",month:"short",day:"numeric"});
   const tm = d.toLocaleTimeString("en-US",{timeZone:"America/Chicago",hour:"numeric",minute:"2-digit"});
   return day+" · "+tm+" CT";
 }
 const started = m => new Date(m.time) <= new Date();
+/* knockout helpers: slot id "R32_M73" -> match number 73 (no clash with group 1-72) */
+function koNum(slotId){ const m=String(slotId).match(/_M(\d+)/); return m?parseInt(m[1]):null; }
+const KO_BY_NUM = {};
+if(typeof KNOCKOUT_SLOTS!=="undefined"){ KNOCKOUT_SLOTS.forEach(s=>{ const n=koNum(s.id); if(n) KO_BY_NUM[n]=s; }); }
+function koDataByNum(num){ const s=KO_BY_NUM[num]; return s ? (koResults[s.id]||null) : null; }
+function koLocked(ko){
+  if(!ko) return false;
+  if(ko.home_score!=null && ko.away_score!=null) return true;          // result entered
+  if(ko.kickoff && new Date(ko.kickoff) <= new Date()) return true;     // kickoff passed
+  return false;
+}
+/* unified lock check for any match id (group fixture or knockout tie) */
+function matchLocked(matchId){
+  const g = FIXTURES.find(f=>sid(f.id,matchId));
+  if(g) return started(g);
+  return koLocked(koDataByNum(matchId));
+}
 function banner(text,isErr){
   document.getElementById("banner-text").textContent = text;
   document.getElementById("banner").className = "banner"+(isErr?" err":"");
@@ -493,6 +533,7 @@ function showView(v){
   document.getElementById("view-"+v).classList.add("active");
   document.querySelectorAll("#nav button[data-view]").forEach(b=>b.classList.toggle("active", b.dataset.view===v));
   if(v==="allpicks") renderAllPicks();
+  if(v==="knockout") renderKnockout();
 }
 async function enterApp(){
   if(!isApproved(me)){ document.getElementById("nav").style.display="none"; showView("pending"); return; }
@@ -514,10 +555,11 @@ async function fetchAllRows(table){
   return { data: all, error: null };
 }
 async function loadAll(){
-  const [p,pr,r] = await Promise.all([
+  const [p,pr,r,ko] = await Promise.all([
     fetchAllRows("players"),
     fetchAllRows("predictions"),
-    fetchAllRows("results")
+    fetchAllRows("results"),
+    fetchAllRows("ko_results")
   ]);
   const err = p.error || pr.error || r.error;
   if(err){
@@ -530,11 +572,28 @@ async function loadAll(){
   predictions = pr.data || [];
   results = {};
   (r.data||[]).forEach(x=>{ results[String(x.match_id)] = x; });
-  renderPredictions(); renderLeaderboard(); renderAllPicks();
+  koResults = {};
+  (ko.data||[]).forEach(x=>{ koResults[x.slot_id] = x; });
+  // Make finished knockout ties scorable on the same leaderboard as group games
+  Object.values(koResults).forEach(k=>{
+    const num = koNum(k.slot_id);
+    if(num!=null && k.home_score!=null && k.away_score!=null){
+      results[String(num)] = {match_id:num, home_score:k.home_score, away_score:k.away_score, is_finished:true};
+    }
+  });
+  renderPredictions(); renderLeaderboard(); renderAllPicks(); renderKnockout();
   if(me.is_admin){ renderAdminPlayers(); renderAdminResults(); }
 }
 
 /* ============ PREDICTIONS ============ */
+function renderModeToggle(){
+  const el = document.getElementById("pred-mode");
+  if(!el) return;
+  el.innerHTML = `
+    <button class="${predMode==='group'?'active':''}" onclick="setPredMode('group')">Group Stage</button>
+    <button class="${predMode==='knockout'?'active':''}" onclick="setPredMode('knockout')">Knockout</button>`;
+}
+window.setPredMode = m => { predMode=m; renderPredictions(); };
 function renderGroupFilters(){
   document.getElementById("group-filters").innerHTML = GROUPS.map(g=>
     `<button class="${g===groupFilter?'active':''}" onclick="setGroupFilter('${g}')">Group ${g}</button>`).join("");
@@ -543,32 +602,77 @@ window.setGroupFilter = g => { groupFilter=g; renderGroupFilters(); renderPredic
 function myPred(matchId){
   return predictions.find(p=> sid(p.player_id,me.id) && sid(p.match_id,matchId));
 }
-function renderPredictions(){
-  renderGroupFilters();
-  const list = FIXTURES.filter(f=>f.group===groupFilter);
-  document.getElementById("matches").innerHTML = list.map(m=>{
-    const lock = started(m);
-    const pred = myPred(m.id);
-    const h = pred ? pred.home_pred : "";
-    const a = pred ? pred.away_pred : "";
-    const dis = lock ? "disabled" : "";
-    return `<div class="match ${lock?'locked':''}">
+/* shared match card for a predictable tie (group or knockout) */
+function predictionCard(o){
+  // o: {id, home, away, locked, badge, meta}
+  const pred = myPred(o.id);
+  const h = pred ? pred.home_pred : "";
+  const a = pred ? pred.away_pred : "";
+  const dis = o.locked ? "disabled" : "";
+  return `<div class="match ${o.locked?'locked':''}">
       <div class="mhead">
-        <span class="mbadge">MD${m.matchday||matchdayOf(m)}</span>
-        <span>${lock?'<span class="lock">🔒 Locked — kicked off</span>':kickoffCT(m.time)} · ${m.venue}</span>
+        <span class="mbadge">${o.badge}</span>
+        <span>${o.locked?'<span class="lock">🔒 Locked</span>':o.meta}</span>
       </div>
       <div class="row">
-        <div class="team">${flagFor(m.home)} ${m.home}</div>
+        <div class="team">${flagFor(o.home)} ${o.home}</div>
         <div class="scores">
-          <input type="number" min="0" id="h-${m.id}" value="${h}" ${dis} onchange="onScore(${m.id})">
+          <input type="number" min="0" id="h-${o.id}" value="${h}" ${dis} onchange="onScore(${o.id})">
           <span>:</span>
-          <input type="number" min="0" id="a-${m.id}" value="${a}" ${dis} onchange="onScore(${m.id})">
+          <input type="number" min="0" id="a-${o.id}" value="${a}" ${dis} onchange="onScore(${o.id})">
         </div>
-        <div class="team away">${m.away} ${flagFor(m.away)}</div>
+        <div class="team away">${o.away} ${flagFor(o.away)}</div>
       </div>
-      ${lock?'':`<div class="save-row"><span class="save-state" id="ss-${m.id}"></span></div>`}
+      ${o.locked?'':`<div class="save-row"><span class="save-state" id="ss-${o.id}"></span></div>`}
     </div>`;
+}
+function renderPredictions(){
+  renderModeToggle();
+  const groupBox = document.getElementById("group-filters");
+  const box = document.getElementById("matches");
+  if(predMode==="knockout"){
+    groupBox.style.display = "none";
+    renderKnockoutPredictions(box);
+    return;
+  }
+  groupBox.style.display = "";
+  renderGroupFilters();
+  const list = FIXTURES.filter(f=>f.group===groupFilter);
+  box.innerHTML = list.map(m=>{
+    const locked = started(m);
+    return predictionCard({
+      id:m.id, home:m.home, away:m.away, locked,
+      badge:"MD"+(m.matchday||matchdayOf(m)),
+      meta: kickoffCT(m.time)+" · "+m.venue
+    });
   }).join("");
+}
+function renderKnockoutPredictions(box){
+  const ties = KNOCKOUT_SLOTS
+    .map(s=>({slot:s, ko:koResults[s.id]}))
+    .filter(x=>x.ko && x.ko.home_team && x.ko.away_team);
+  if(!ties.length){
+    box.innerHTML = `<div class="card muted" style="text-align:center">
+      Knockout ties will appear here as the bracket fills in. An admin sets each tie's two teams in the <b>Knockout</b> tab — once both teams are in, you can predict the score here.</div>`;
+    return;
+  }
+  let html = "";
+  KO_ROUNDS.forEach(round=>{
+    const inRound = ties.filter(t=>t.slot.round===round);
+    if(!inRound.length) return;
+    html += `<div class="card" style="padding:14px 16px;margin-bottom:8px"><b>${round}</b></div>`;
+    inRound.forEach(({slot,ko})=>{
+      const num = koNum(slot.id);
+      const locked = koLocked(ko);
+      const meta = ko.kickoff ? kickoffCT(ko.kickoff) : "Awaiting kickoff time";
+      html += predictionCard({
+        id:num, home:ko.home_team, away:ko.away_team, locked,
+        badge: round.replace("Round of","R").replace("Quarter Finals","QF").replace("Semi Finals","SF").replace("Final","F").trim(),
+        meta
+      });
+    });
+  });
+  box.innerHTML = html;
 }
 function matchdayOf(m){
   // first 2 fixtures per group = MD1, next 2 = MD2, last 2 = MD3 (ids are sequential per group)
@@ -592,7 +696,7 @@ async function savePrediction(matchId, home, away){
     if(!me || !me.id){ setSave(matchId,"Please log in again","err"); return false; }
   }
   const m = FIXTURES.find(f=>sid(f.id,matchId));
-  if(m && started(m)){ setSave(matchId,"Locked — kicked off","err"); return false; }
+  if(matchLocked(matchId)){ setSave(matchId,"Locked","err"); return false; }
   setSave(matchId,"Saving…","saving");
   try{
     const { data:existing, error:e1 } = await db.from("predictions")
@@ -648,7 +752,20 @@ function renderLeaderboard(){
 function renderAllPicks(){
   const box = document.getElementById("allpicks");
   if(!box) return;
-  const live = FIXTURES.filter(started).sort((a,b)=>new Date(b.time)-new Date(a.time));
+  // group fixtures that have kicked off
+  const groupLive = FIXTURES.filter(started).map(m=>({
+    id:m.id, home:m.home, away:m.away, time:m.time,
+    badge:"MD"+matchdayOf(m), venue:m.venue, sortT:new Date(m.time).getTime()
+  }));
+  // knockout ties that are locked (kicked off or result in)
+  const koLive = KNOCKOUT_SLOTS.map(s=>{
+    const k = koResults[s.id];
+    if(!k || !k.home_team || !k.away_team || !koLocked(k)) return null;
+    return { id:koNum(s.id), home:k.home_team, away:k.away_team, time:k.kickoff,
+             badge:s.round.replace("Round of","R").replace("Quarter Finals","QF").replace("Semi Finals","SF").replace("Final","F").trim(),
+             venue:s.round, sortT:k.kickoff?new Date(k.kickoff).getTime():Date.now() };
+  }).filter(Boolean);
+  const live = groupLive.concat(koLive).sort((a,b)=> b.sortT - a.sortT);
   if(!live.length){ box.innerHTML = `<div class="card muted" style="text-align:center">No matches have kicked off yet. Picks are revealed here once a match starts.</div>`; return; }
   box.innerHTML = live.map(m=>{
     const r = results[String(m.id)];
@@ -662,11 +779,87 @@ function renderAllPicks(){
     const head = fin ? `<span class="pscore">${r.home_score}–${r.away_score} FT</span>` : `<span class="lock">🔒 Locked</span>`;
     return `<div class="pcard">
       <div class="phead"><span class="pmatch">${flagFor(m.home)} ${m.home} v ${m.away} ${flagFor(m.away)}</span>${head}</div>
-      <div class="pmeta"><span class="mbadge">MD${matchdayOf(m)}</span> ${kickoffCT(m.time)} · ${m.venue}</div>
+      <div class="pmeta"><span class="mbadge">${m.badge}</span> ${kickoffCT(m.time)} · ${m.venue}</div>
       <div>${picks.map(p=>`<div class="prow"><span>${p.name}</span><span class="pscore ${p.exact?'exact':''}">${p.h} - ${p.a}${p.pt!==null?` (${p.pt})`:''}</span></div>`).join("") || '<div class="muted">No picks for this match.</div>'}</div>
     </div>`;
   }).join("");
 }
+
+/* ============ KNOCKOUT ============ */
+const KO_ROUNDS = ["Round of 32","Round of 16","Quarter Finals","Semi Finals","Final"];
+function renderKnockout(){
+  const box = document.getElementById("knockout");
+  if(!box) return;
+  const admin = !!(me && me.is_admin);
+  document.getElementById("ko-note").textContent = admin
+    ? "Admin: fill in the teams and scores for each tie as the knockout rounds are played."
+    : "The path to the final. Teams and scores fill in as the knockout rounds are played.";
+  let html = "";
+  KO_ROUNDS.forEach(round=>{
+    const slots = KNOCKOUT_SLOTS.filter(s=>s.round===round);
+    html += `<div class="card"><h2>${round}</h2><div class="ko-grid">`;
+    slots.forEach(s=>{
+      const k = koResults[s.id] || {};
+      if(admin){
+        const koVal = k.kickoff ? new Date(k.kickoff).toISOString().slice(0,16) : "";
+        html += `<div class="ko-slot">
+          <div class="ko-side">
+            <input class="ko-team" id="kh-${s.id}" value="${(k.home_team||'').replace(/"/g,'&quot;')}" placeholder="${s.hLabel}">
+            <input class="ko-sc" type="number" min="0" id="khs-${s.id}" value="${k.home_score??''}">
+          </div>
+          <div class="ko-side">
+            <input class="ko-team" id="ka-${s.id}" value="${(k.away_team||'').replace(/"/g,'&quot;')}" placeholder="${s.aLabel}">
+            <input class="ko-sc" type="number" min="0" id="kas-${s.id}" value="${k.away_score??''}">
+          </div>
+          <label style="font-size:.62rem;margin:6px 0 2px">Kickoff (locks predictions)</label>
+          <input type="datetime-local" id="kt-${s.id}" value="${koVal}" style="padding:6px;font-size:.78rem">
+          <button class="chip green ko-save" onclick="saveKo('${s.id}')">Save</button>
+        </div>`;
+      } else {
+        const hs=k.home_score, as=k.away_score;
+        const done = (hs!=null && as!=null);
+        const hWin = done && hs>as, aWin = done && as>hs;
+        const hTeam = k.home_team ? k.home_team : `<span class="lbl">${s.hLabel}</span>`;
+        const aTeam = k.away_team ? k.away_team : `<span class="lbl">${s.aLabel}</span>`;
+        html += `<div class="ko-slot">
+          <div class="ko-side ${hWin?'win':''}"><span>${hTeam}</span><span class="ko-sc-v">${hs??''}</span></div>
+          <div class="ko-side ${aWin?'win':''}"><span>${aTeam}</span><span class="ko-sc-v">${as??''}</span></div>
+        </div>`;
+      }
+    });
+    html += `</div></div>`;
+  });
+  box.innerHTML = html;
+}
+window.saveKo = async (slotId)=>{
+  const ht = document.getElementById("kh-"+slotId).value.trim();
+  const at = document.getElementById("ka-"+slotId).value.trim();
+  const hsv = document.getElementById("khs-"+slotId).value;
+  const asv = document.getElementById("kas-"+slotId).value;
+  const ktEl = document.getElementById("kt-"+slotId);
+  const ktv = ktEl ? ktEl.value : "";
+  const row = {
+    slot_id: slotId,
+    home_team: ht || null,
+    away_team: at || null,
+    home_score: hsv===""?null:parseInt(hsv),
+    away_score: asv===""?null:parseInt(asv),
+    kickoff: ktv ? new Date(ktv).toISOString() : null
+  };
+  const doSave = async (payload)=>{
+    const { data: existing } = await db.from("ko_results").select("id").eq("slot_id", slotId).limit(1);
+    if(existing && existing.length) return db.from("ko_results").update(payload).eq("slot_id", slotId);
+    return db.from("ko_results").insert(payload);
+  };
+  let { error } = await doSave(row);
+  // if the kickoff column hasn't been added yet, save without it
+  if(error && /kickoff/i.test(error.message||"")){
+    const { kickoff, ...rest } = row;
+    ({ error } = await doSave(rest));
+  }
+  if(error){ alert("Error saving knockout result: "+error.message); return; }
+  await loadAll();
+};
 
 /* ============ ADMIN ============ */
 function renderAdminPlayers(){
@@ -693,7 +886,7 @@ function renderAdminResults(){
   document.getElementById("adm-results").innerHTML = list.map(m=>{
     const r = results[String(m.id)];
     return `<div class="adm-row">
-      <span>${flagFor(m.home)} ${m.home} v ${m.away} ${flagFor(m.away)} ${r&&r.is_finished?'<span style="color:var(--primary)">✔ '+r.home_score+'–'+r.away_score+'</span>':''}</span>
+      <span>${flagFor(m.home)} ${m.home} v ${m.away} ${flagFor(m.away)} ${r&&r.is_finished?'<span style="color:var(--primary)">✔ '+r.home_score+'–'+r.away_score+'</span>':''} ${r&&r.changed_by?'<span class="muted" style="font-size:.7rem">· by '+r.changed_by+'</span>':''}</span>
       <span style="display:flex;align-items:center;gap:6px">
         <input type="number" min="0" id="rh-${m.id}" value="${r?r.home_score:''}" style="width:52px;text-align:center;padding:6px">
         <span class="muted">:</span>
@@ -707,13 +900,18 @@ window.admSaveResult = async matchId=>{
   const h=document.getElementById("rh-"+matchId).value, a=document.getElementById("ra-"+matchId).value;
   if(h===""||a===""){ alert("Enter both scores."); return; }
   const home=parseInt(h),away=parseInt(a);
+  const by = (me && me.name) ? me.name : "admin";
   const { data:existing } = await db.from("results").select("id").eq("match_id",matchId).limit(1);
-  let error;
-  if(existing && existing.length){
-    ({error} = await db.from("results").update({home_score:home,away_score:away,is_finished:true}).eq("match_id",matchId));
-  } else {
-    ({error} = await db.from("results").insert({match_id:matchId,home_score:home,away_score:away,is_finished:true}));
-  }
+  const isUpdate = !!(existing && existing.length);
+  const save = (withBy)=>{
+    const base = {home_score:home,away_score:away,is_finished:true};
+    if(withBy) base.changed_by = by;
+    if(isUpdate) return db.from("results").update(base).eq("match_id",matchId);
+    return db.from("results").insert({match_id:matchId, ...base});
+  };
+  let { error } = await save(true);
+  // If the changed_by column hasn't been added yet, save without it so results still work
+  if(error && /changed_by/i.test(error.message||"")){ ({ error } = await save(false)); }
   if(error){ alert("Error saving result: "+error.message); return; }
   await loadAll();
 };
