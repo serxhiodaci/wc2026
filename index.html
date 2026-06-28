@@ -473,6 +473,10 @@ function kickoffCT(iso){
   return day+" · "+tm+" CT";
 }
 const started = m => new Date(m.time) <= new Date();
+/* Prediction-time tracking only became reliable once the updated_at column was added.
+   Only flag/show save times for games that kick off after this moment, so games that
+   already kicked off (whose timestamps were backfilled) are never falsely flagged. */
+const TRACKING_SINCE = new Date("2026-06-29T00:00:00Z");
 /* knockout helpers: slot id "R32_M73" -> match number 73 (no clash with group 1-72) */
 function koNum(slotId){ const m=String(slotId).match(/_M(\d+)/); return m?parseInt(m[1]):null; }
 const KO_BY_NUM = {};
@@ -808,6 +812,8 @@ function renderAllPicks(){
     const r = results[String(m.id)];
     const fin = r && r.is_finished;
     const koMs = m.time ? new Date(m.time).getTime() : null;
+    // Only show save times for games kicking off after tracking became reliable
+    const trackOK = koMs != null && koMs >= TRACKING_SINCE.getTime();
     const picks = predictions.filter(p=>sid(p.match_id,m.id)).map(p=>{
       const pl = players.find(x=>sid(x.id,p.player_id));
       const pt = fin ? points(p.home_pred,p.away_pred,r.home_score,r.away_score) : null;
@@ -818,10 +824,11 @@ function renderAllPicks(){
     }).sort((x,y)=> fin ? (y.pt-x.pt) : x.name.localeCompare(y.name));
     const head = fin ? `<span class="pscore">${r.home_score}–${r.away_score} FT</span>` : `<span class="lock">🔒 Locked</span>`;
     const isAdmin = !!(me && me.is_admin);
+    const showSave = isAdmin && trackOK;
     return `<div class="pcard">
       <div class="phead"><span class="pmatch">${flagFor(m.home)} ${m.home} v ${m.away} ${flagFor(m.away)}</span>${head}</div>
       <div class="pmeta"><span class="mbadge">${m.badge}</span> ${kickoffCT(m.time)} · ${m.venue}</div>
-      <div>${picks.map(p=>`<div class="prow"><span>${p.name}${isAdmin&&p.savedAt?`<span class="savemeta ${p.late?'late':''}">${p.late?'⚠ saved after kickoff · ':'saved '}${savedTime(p.savedAt)}</span>`:''}</span><span class="pscore ${p.exact?'exact':''}">${p.h} - ${p.a}${p.pt!==null?` (${p.pt})`:''}</span></div>`).join("") || '<div class="muted">No picks for this match.</div>'}</div>
+      <div>${picks.map(p=>`<div class="prow"><span>${p.name}${showSave&&p.savedAt?`<span class="savemeta ${p.late?'late':''}">${p.late?'⚠ saved after kickoff · ':'saved '}${savedTime(p.savedAt)}</span>`:''}</span><span class="pscore ${p.exact?'exact':''}">${p.h} - ${p.a}${p.pt!==null?` (${p.pt})`:''}</span></div>`).join("") || '<div class="muted">No picks for this match.</div>'}</div>
     </div>`;
   }).join("");
 }
@@ -904,12 +911,13 @@ window.saveKo = async (slotId)=>{
     kickoff: ktv ? new Date(ktv).toISOString() : null
   };
   const doSave = async (payload)=>{
-    // Find an existing row by slot_id (works whether the PK is slot_id or id).
-    const { data: existing } = await db.from("ko_results").select("slot_id").eq("slot_id", slotId).limit(1);
-    if(existing && existing.length){
-      return db.from("ko_results").update(payload).eq("slot_id", slotId);
+    // True DB-level upsert on slot_id — never produces a duplicate-key error.
+    let res = await db.from("ko_results").upsert(payload, { onConflict: "slot_id" });
+    // If this Postgres/PostgREST setup rejects the upsert, fall back to an explicit update.
+    if(res.error && /duplicate|conflict|on conflict|unique/i.test(res.error.message||"")){
+      res = await db.from("ko_results").update(payload).eq("slot_id", slotId);
     }
-    return db.from("ko_results").insert(payload);
+    return res;
   };
   let { error } = await doSave(row);
   // if the kickoff column hasn't been added yet, save without it
