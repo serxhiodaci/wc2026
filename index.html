@@ -148,7 +148,7 @@ tr.me{background:rgba(22,224,127,.06)}
   <button data-view="predictions" class="active">My Predictions</button>
   <button data-view="leaderboard">Leaderboard</button>
   <button data-view="allpicks">All Picks</button>
-  <button data-view="knockout">Knockout</button>
+  <button data-view="knockout" id="nav-knockout" style="display:none">Knockout</button>
   <button data-view="rules">Rules</button>
   <button data-view="admin" id="nav-admin" style="display:none;color:var(--accent)">Admin</button>
   <button class="logout" id="nav-logout">Log Out</button>
@@ -458,7 +458,7 @@ let results = {};         // keyed by String(match_id)
 let koResults = {};       // keyed by slot_id
 let groupFilter = "A";
 let admGroupFilter = "A";
-let predMode = "group";    // "group" | "knockout"
+let predMode = "knockout";    // "group" | "knockout"
 
 /* ============ HELPERS ============ */
 const sid = (a,b) => String(a) === String(b);
@@ -562,6 +562,7 @@ function showView(v){
   document.querySelectorAll(".view").forEach(e=>e.classList.remove("active"));
   document.getElementById("view-"+v).classList.add("active");
   document.querySelectorAll("#nav button[data-view]").forEach(b=>b.classList.toggle("active", b.dataset.view===v));
+  if(v==="predictions"){ predMode="knockout"; renderPredictions(); }
   if(v==="allpicks") renderAllPicks();
   if(v==="knockout") renderKnockout();
 }
@@ -569,6 +570,7 @@ async function enterApp(){
   if(!isApproved(me)){ document.getElementById("nav").style.display="none"; showView("pending"); return; }
   document.getElementById("nav").style.display="flex";
   document.getElementById("nav-admin").style.display = me.is_admin ? "" : "none";
+  document.getElementById("nav-knockout").style.display = me.is_admin ? "" : "none";
   showView("predictions");
   await loadAll();
 }
@@ -688,7 +690,7 @@ function renderKnockoutPredictions(box){
   }
   let html = `<div class="card" style="padding:13px 16px;margin-bottom:10px;border-color:var(--accent)">
     <span style="color:var(--accent);font-weight:700;font-size:.82rem">⏱️ Extra time counts.</span>
-    <span class="muted" style="font-size:.82rem"> Knockout games can't end in a tie. If it's level after 90 minutes, extra time is played — and your prediction is scored against the <b>final score after 120 minutes</b> (penalty shootouts don't change the score). Predict the score you think it'll be at the very end. See the Rules tab for examples.</span>
+    <span class="muted" style="font-size:.82rem"> If it's level after 90 minutes, extra time is played — and your prediction is scored against the <b>final score after 120 minutes</b> (penalty shootouts don't change the score). Predict the score you think it'll be at the very end. See the Rules tab for examples.</span>
   </div>`;
   KO_ROUNDS.forEach(round=>{
     const inRound = ties.filter(t=>t.slot.round===round);
