@@ -103,6 +103,8 @@ tr.me{background:rgba(22,224,127,.06)}
 .pmeta{color:var(--mut);font-size:.72rem;margin:6px 0 12px}
 .prow{display:flex;justify-content:space-between;padding:8px 10px;border-radius:8px}
 .prow:nth-child(odd){background:rgba(255,255,255,.03)}
+.savemeta{display:block;font-size:.66rem;color:var(--mut);margin-top:2px}
+.savemeta.late{color:var(--danger);font-weight:700}
 .pscore{font-family:var(--mono);font-weight:800}
 .pscore.exact{color:var(--primary)}
 .adm-row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:12px 0;border-bottom:1px solid var(--line)}
@@ -805,19 +807,27 @@ function renderAllPicks(){
   box.innerHTML = live.map(m=>{
     const r = results[String(m.id)];
     const fin = r && r.is_finished;
+    const koMs = m.time ? new Date(m.time).getTime() : null;
     const picks = predictions.filter(p=>sid(p.match_id,m.id)).map(p=>{
       const pl = players.find(x=>sid(x.id,p.player_id));
       const pt = fin ? points(p.home_pred,p.away_pred,r.home_score,r.away_score) : null;
+      const savedMs = p.updated_at ? new Date(p.updated_at).getTime() : null;
       return {name:pl?pl.name:"Unknown",h:p.home_pred,a:p.away_pred,pt,
-              exact:fin && p.home_pred===r.home_score && p.away_pred===r.away_score};
+              exact:fin && p.home_pred===r.home_score && p.away_pred===r.away_score,
+              savedAt:p.updated_at, late:(savedMs!=null && koMs!=null && savedMs > koMs)};
     }).sort((x,y)=> fin ? (y.pt-x.pt) : x.name.localeCompare(y.name));
     const head = fin ? `<span class="pscore">${r.home_score}–${r.away_score} FT</span>` : `<span class="lock">🔒 Locked</span>`;
+    const isAdmin = !!(me && me.is_admin);
     return `<div class="pcard">
       <div class="phead"><span class="pmatch">${flagFor(m.home)} ${m.home} v ${m.away} ${flagFor(m.away)}</span>${head}</div>
       <div class="pmeta"><span class="mbadge">${m.badge}</span> ${kickoffCT(m.time)} · ${m.venue}</div>
-      <div>${picks.map(p=>`<div class="prow"><span>${p.name}</span><span class="pscore ${p.exact?'exact':''}">${p.h} - ${p.a}${p.pt!==null?` (${p.pt})`:''}</span></div>`).join("") || '<div class="muted">No picks for this match.</div>'}</div>
+      <div>${picks.map(p=>`<div class="prow"><span>${p.name}${isAdmin&&p.savedAt?`<span class="savemeta ${p.late?'late':''}">${p.late?'⚠ saved after kickoff · ':'saved '}${savedTime(p.savedAt)}</span>`:''}</span><span class="pscore ${p.exact?'exact':''}">${p.h} - ${p.a}${p.pt!==null?` (${p.pt})`:''}</span></div>`).join("") || '<div class="muted">No picks for this match.</div>'}</div>
     </div>`;
   }).join("");
+}
+function savedTime(iso){
+  const d = new Date(iso);
+  return d.toLocaleString("en-US",{timeZone:"America/Chicago",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})+" CT";
 }
 
 /* ============ KNOCKOUT ============ */
@@ -894,8 +904,11 @@ window.saveKo = async (slotId)=>{
     kickoff: ktv ? new Date(ktv).toISOString() : null
   };
   const doSave = async (payload)=>{
-    const { data: existing } = await db.from("ko_results").select("id").eq("slot_id", slotId).limit(1);
-    if(existing && existing.length) return db.from("ko_results").update(payload).eq("slot_id", slotId);
+    // Find an existing row by slot_id (works whether the PK is slot_id or id).
+    const { data: existing } = await db.from("ko_results").select("slot_id").eq("slot_id", slotId).limit(1);
+    if(existing && existing.length){
+      return db.from("ko_results").update(payload).eq("slot_id", slotId);
+    }
     return db.from("ko_results").insert(payload);
   };
   let { error } = await doSave(row);
