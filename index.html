@@ -265,6 +265,12 @@ tr.me{background:rgba(22,224,127,.06)}
       <div class="filters" id="adm-group-filters"></div>
       <div id="adm-results" style="margin-top:10px"></div>
     </div>
+
+    <div class="card">
+      <h2>Overtime Vote (90 vs 120 min)</h2>
+      <p class="muted">Who wants knockouts scored on the 90-minute result vs the 120-minute (extra time) result. Tap a name to move them.</p>
+      <div id="adm-otvote" style="margin-top:12px"></div>
+    </div>
   </div>
 
 </div>
@@ -448,6 +454,7 @@ const db = supabase.createClient(SB_URL, SB_KEY);
             { id: "QF_M100", round: "Quarter Finals", hLabel: "R16 M95 Winner", aLabel: "R16 M96 Winner" },
             { id: "SF_M101", round: "Semi Finals", hLabel: "QF M97 Winner", aLabel: "QF M98 Winner" },
             { id: "SF_M102", round: "Semi Finals", hLabel: "QF M99 Winner", aLabel: "QF M100 Winner" },
+            { id: "TP_M103", round: "Third Place", hLabel: "SF M101 Loser", aLabel: "SF M102 Loser" },
             { id: "FN_M104", round: "Final", hLabel: "SF M101 Winner", aLabel: "SF M102 Winner" }
         ];
 
@@ -620,7 +627,7 @@ async function loadAll(){
     }
   });
   renderPredictions(); renderLeaderboard(); renderAllPicks(); renderKnockout();
-  if(me.is_admin){ renderAdminPlayers(); renderAdminResults(); }
+  if(me.is_admin){ renderAdminPlayers(); renderAdminResults(); renderOtVote(); }
 }
 
 /* ============ PREDICTIONS ============ */
@@ -838,7 +845,7 @@ function savedTime(iso){
 }
 
 /* ============ KNOCKOUT ============ */
-const KO_ROUNDS = ["Round of 32","Round of 16","Quarter Finals","Semi Finals","Final"];
+const KO_ROUNDS = ["Round of 32","Round of 16","Quarter Finals","Semi Finals","Third Place","Final"];
 function renderKnockout(){
   const box = document.getElementById("knockout");
   if(!box) return;
@@ -942,6 +949,38 @@ function renderAdminPlayers(){
 }
 window.admApprove = async id =>{ const {error}=await db.from("players").update({is_approved:true}).eq("id",id); if(error)return alert(error.message); await loadAll(); };
 window.admMakeAdmin = async id =>{ const {error}=await db.from("players").update({is_admin:true}).eq("id",id); if(error)return alert(error.message); await loadAll(); };
+
+/* Overtime vote: 90 vs 120 min. Preference stored on players.ot_pref ('90' | '120'), default 120. */
+const otPrefOf = p => (p.ot_pref === '90' ? '90' : '120');
+function renderOtVote(){
+  const box = document.getElementById("adm-otvote");
+  if(!box) return;
+  const sorted = [...players].sort((a,b)=>a.name.localeCompare(b.name));
+  const list90 = sorted.filter(p=>otPrefOf(p)==='90');
+  const list120 = sorted.filter(p=>otPrefOf(p)==='120');
+  const col = (title, arr, target, color) => `
+    <div style="flex:1;min-width:220px">
+      <div style="font-weight:800;color:${color};margin-bottom:8px">${title} <span class="muted" style="font-weight:600">(${arr.length})</span></div>
+      ${arr.map(p=>`<div class="adm-row" style="padding:8px 0">
+        <span>${p.name}</span>
+        <button class="chip" onclick="setOtPref('${p.id}','${target}')">→ ${target} min</button>
+      </div>`).join("") || '<p class="muted">Nobody yet.</p>'}
+    </div>`;
+  box.innerHTML = `<div style="display:flex;gap:24px;flex-wrap:wrap">
+    ${col('90 minutes', list90, '120', 'var(--accent)')}
+    ${col('120 minutes', list120, '90', 'var(--primary)')}
+  </div>`;
+}
+window.setOtPref = async (id, pref)=>{
+  const { error } = await db.from("players").update({ ot_pref: pref }).eq("id", id);
+  if(error){
+    if(/ot_pref/i.test(error.message||"")){
+      alert("Add the ot_pref column first (see the SQL I gave you), then this will work.");
+    } else { alert("Error: "+error.message); }
+    return;
+  }
+  await loadAll();
+};
 
 function renderAdmGroupFilters(){
   document.getElementById("adm-group-filters").innerHTML = GROUPS.map(g=>
